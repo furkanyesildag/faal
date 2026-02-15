@@ -1,0 +1,6 @@
+teknofest-gui/node_modules
+teknofest-gui/dist
+.env
+*.log
+.vscode
+.idea
