@@ -1,19 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Moon, Sun, Wifi, WifiOff, PlayCircle, Layers, Terminal } from 'lucide-react';
+import { Moon, Sun, Wifi, WifiOff, Layers, Terminal } from 'lucide-react';
 import * as ROSLIB from 'roslib';
 
 import { ROSBRIDGE_URL, TOPICS, COMMANDS } from './config/mission';
 import {
   useROS2Connection, useOdometry, useMap, useLaserScan, usePath,
   useFloatTopic, useQRCode, useRobotState, useControlMode,
-  useBattery, usePLCStatus, usePLCMessages, useCompressedImage, usePublishers,
+  useBattery, usePLCStatus, usePLCMessages, usePublishers,
 } from './hooks/useROS2';
-import { useDemo } from './hooks/useDemo';
 
 import RobotStatus from './components/RobotStatus';
 import PLCPanel from './components/PLCPanel';
 import MapView from './components/MapView';
-import CameraView from './components/CameraView';
 import SensorHUD from './components/SensorHUD';
 import Controls from './components/Controls';
 import { Jarvis } from './components/Jarvis';
@@ -31,18 +29,15 @@ const App = () => {
   const robotStateR  = useRobotState(ros, TOPICS.robotState);
   const controlModeR = useControlMode(ros, TOPICS.controlMode);
   const qrROS        = useQRCode(ros, TOPICS.qrCode);
-  const lineOffROS   = useFloatTopic(ros, TOPICS.lineOffset, 0);
   const routeDevROS  = useFloatTopic(ros, TOPICS.routeDev, 0);
   const batteryROS   = useBattery(ros, TOPICS.battery);
   const plcROS       = usePLCStatus(ros, TOPICS.plcStatus);
   const plcMsgsROS   = usePLCMessages(ros, TOPICS.plcMessage);
-  const camROS       = useCompressedImage(ros, TOPICS.lineCam);
   const { sendCommand, sendVelocity } = usePublishers(ros, TOPICS);
 
   // ─── Yerel UI durumları ──────────────────────────────────────────────────
   const [theme, setTheme]     = useState('dark');
-  const [demo, setDemo]       = useState(false);
-  const [logs, setLogs]       = useState([{ time: '--:--:--', msg: 'Sistem hazır. ROS2 bağlantısı bekleniyor.' }]);
+  const [logs, setLogs]       = useState([{ time: '--:--:--', msg: 'Sistem hazir. ROS2 baglantisi bekleniyor.' }]);
   const [clock, setClock]     = useState(new Date().toLocaleTimeString('tr-TR'));
   const [tasks, setTasks]     = useState([]);
   const [activeStep, setStep] = useState(0);
@@ -55,34 +50,23 @@ const App = () => {
     setLogs((prev) => [{ time: new Date().toLocaleTimeString('tr-TR'), msg }, ...prev].slice(0, 60));
   };
 
-  // ─── DEMO motoru ──────────────────────────────────────────────────────────
-  const sim = useDemo(demo);
+  // ─── Canlı ROS2 verileri ──────────────────────────────────────────────────
+  const odom       = odomROS;
+  const mapData    = mapROS;
+  const scan       = scanROS;
+  const path       = pathROS;
+  const robotState = robotStateR;
+  const controlMode= controlModeR;
+  const qr         = qrROS;
+  const routeDev   = routeDevROS;
+  const battery    = batteryROS;
+  const plc        = plcROS;
+  const plcMsgs    = plcMsgsROS;
+  const planData   = tasks;
+  const stepData   = activeStep;
 
-  // ─── Kaynak seçimi: DEMO açıksa simülasyon, değilse ROS ────────────────────
-  const odom       = demo ? sim.odom            : odomROS;
-  const mapData    = demo ? sim.map             : mapROS;
-  const scan       = demo ? sim.scan            : scanROS;
-  const path       = demo ? []                  : pathROS;
-  const robotState = demo ? sim.robotState      : robotStateR;
-  const controlMode= demo ? 'MANUAL'            : controlModeR;
-  const qr         = demo ? sim.qr              : qrROS;
-  const lineOffset = demo ? sim.line            : lineOffROS;
-  const routeDev   = demo ? 0.03                : routeDevROS;
-  const battery    = demo ? sim.battery         : batteryROS;
-  const plc        = demo ? sim.plc             : plcROS;
-  const plcMsgs    = demo ? sim.messages        : plcMsgsROS;
-  const cam        = demo ? null                : camROS;
-  const planData   = demo ? sim.plan            : tasks;
-  const stepData   = demo ? sim.step            : activeStep;
-
-  // ─── Komut WebSocket olmadan yayınlama: publishers hook üzerinden ─────────
+  // ─── Komut gönderimi (/gui_command) ───────────────────────────────────────
   const doCommand = (cmd) => {
-    if (demo) {
-      if (cmd === COMMANDS.START)     setRunning(true);
-      if (cmd === COMMANDS.STOP)      setRunning(false);
-      logEkle(`(DEMO) Komut: ${cmd}`);
-      return;
-    }
     const ok = sendCommand(cmd);
     logEkle(ok ? `Komut gonderildi: ${cmd}` : `Komut gonderilemedi (baglanti yok): ${cmd}`);
     if (cmd === COMMANDS.START)                                setRunning(true);
@@ -116,11 +100,11 @@ const App = () => {
 
   // ROS bağlanınca planı iste
   useEffect(() => {
-    if (isConnected && !demo) {
+    if (isConnected) {
       const t = setTimeout(() => { sendCommand(COMMANDS.RESEND); logEkle('Gorev plani istendi (resend_plan).'); }, 800);
       return () => clearTimeout(t);
     }
-  }, [isConnected, demo, sendCommand]);
+  }, [isConnected, sendCommand]);
 
   // ─── Saat + bağlantı logu ─────────────────────────────────────────────────
   useEffect(() => {
@@ -131,8 +115,6 @@ const App = () => {
     if (isConnected) logEkle('ROS2 (rosbridge) baglantisi kuruldu.');
     else if (rosError) logEkle(`Baglanti hatasi: ${rosError}`);
   }, [isConnected, rosError]);
-
-  const online = demo || isConnected;
 
   return (
     <div className="app-root" data-theme={theme}>
@@ -150,12 +132,9 @@ const App = () => {
           <div className={`chip mode ${controlMode === 'MANUAL' ? 'manual' : 'auto'}`}>
             {controlMode === 'MANUAL' ? 'MANUEL' : 'OTONOM'}
           </div>
-          <button className={`chip demo ${demo ? 'on' : ''}`} onClick={() => setDemo((d) => !d)} title="Simülasyon / demo modu">
-            <PlayCircle size={15} /> {demo ? 'DEMO AÇIK' : 'DEMO'}
-          </button>
-          <div className={`chip status ${online ? 'online' : 'offline'}`}>
-            {online ? <Wifi size={15} /> : <WifiOff size={15} />}
-            {demo ? 'SİMÜLASYON' : isConnected ? 'ROS2 ONLINE' : 'OFFLINE'}
+          <div className={`chip status ${isConnected ? 'online' : 'offline'}`}>
+            {isConnected ? <Wifi size={15} /> : <WifiOff size={15} />}
+            {isConnected ? 'ROS2 ONLINE' : 'OFFLINE'}
           </div>
           <div className="chip clock">{clock}</div>
           <button className="chip icon" onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}>
@@ -204,8 +183,11 @@ const App = () => {
             </div>
             <MapLegend />
           </div>
+        </main>
 
-          {/* Loglar */}
+        {/* SAĞ SÜTUN — telemetri + günlük */}
+        <aside className="col col-right">
+          <SensorHUD qr={qr} speed={odom.linearVelocity} odom={odom} battery={battery} routeDeviation={routeDev} />
           <div className="log-strip">
             <div className="log-strip-head"><Terminal size={13} /> SİSTEM GÜNLÜĞÜ</div>
             <div className="log-strip-body">
@@ -214,12 +196,6 @@ const App = () => {
               ))}
             </div>
           </div>
-        </main>
-
-        {/* SAĞ SÜTUN */}
-        <aside className="col col-right">
-          <SensorHUD qr={qr} speed={odom.linearVelocity} odom={odom} battery={battery} routeDeviation={routeDev} />
-          <CameraView src={cam} lineOffset={lineOffset} />
         </aside>
       </div>
 
@@ -227,7 +203,7 @@ const App = () => {
       <footer className="bottombar">
         <Controls
           onCommand={doCommand}
-          sendVelocity={demo ? (() => {}) : sendVelocity}
+          sendVelocity={sendVelocity}
           controlMode={controlMode}
           running={running}
         />

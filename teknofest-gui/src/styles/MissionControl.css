@@ -126,11 +126,15 @@ body {
 .main-grid {
   flex: 1; min-height: 0;
   display: grid; gap: 10px;
-  grid-template-columns: 350px 1fr 372px;
+  grid-template-columns: 340px 1fr 340px;
 }
 .col { min-height: 0; display: flex; flex-direction: column; gap: 10px; }
-.col-left, .col-right { overflow-y: auto; padding-right: 2px; }
+.col-left, .col-right { overflow: hidden; }
 .col-center { overflow: hidden; }
+
+/* Yan sütunlarda sabit paneller doğal boyda; alttaki günlük panelleri boşluğu doldurur */
+.rs-panel, .hud { flex: 0 0 auto; }
+.plc-panel { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 
 /* ════════════════════ ROBOT DURUM ════════════════════ */
 .rs-mode { font-size: 0.66rem; padding: 3px 8px; border-radius: 999px; letter-spacing: 0.3px; }
@@ -209,7 +213,6 @@ body {
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* ════════════════════ PLC PANELİ ════════════════════ */
-.plc-panel { flex-shrink: 0; }
 .plc-status-row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .plc-badge {
   display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px;
@@ -223,7 +226,7 @@ body {
 @keyframes blink { 50% { opacity: 0.55; } }
 
 .plc-log-title { font-size: 0.62rem; letter-spacing: 1px; color: var(--text-dim); margin-bottom: 6px; text-transform: uppercase; }
-.plc-log { max-height: 160px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; font-family: ui-monospace, monospace; }
+.plc-log { flex: 1 1 auto; min-height: 80px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; font-family: ui-monospace, monospace; }
 .plc-log-empty { color: var(--text-dim); font-size: 0.74rem; padding: 8px; }
 .plc-msg { display: grid; grid-template-columns: auto 1fr auto; gap: 8px; align-items: center; padding: 5px 8px; border-radius: 5px; font-size: 0.7rem; background: var(--bg-panel-2); }
 .plc-msg.tx { border-left: 2px solid var(--accent); }
@@ -267,7 +270,7 @@ body {
 .map-legend i { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
 
 /* Loglar */
-.log-strip { flex-shrink: 0; height: 118px; background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
+.log-strip { flex: 1 1 auto; min-height: 140px; background: var(--bg-panel); border: 1px solid var(--border-color); border-radius: var(--radius); display: flex; flex-direction: column; overflow: hidden; }
 .log-strip-head { display: flex; align-items: center; gap: 6px; padding: 7px 12px; font-size: 0.66rem; font-weight: 800; letter-spacing: 1px; color: var(--text-secondary); border-bottom: 1px solid var(--border-soft); }
 .log-strip-body { flex: 1; overflow-y: auto; padding: 6px 12px; font-family: ui-monospace, monospace; font-size: 0.72rem; }
 .log-line { padding: 1px 0; color: var(--text-secondary); }
@@ -296,7 +299,7 @@ body {
 .cam-dot { width: 8px; height: 8px; border-radius: 50%; }
 .cam-dot.on { background: var(--success); box-shadow: 0 0 6px var(--success); }
 .cam-dot.off { background: var(--text-dim); }
-.cam-frame { position: relative; aspect-ratio: 16 / 10; background: #000; border-radius: 8px; overflow: hidden; border: 1px solid var(--border-soft); }
+.cam-frame { position: relative; flex: 1 1 auto; min-height: 150px; background: #000; border-radius: 8px; overflow: hidden; border: 1px solid var(--border-soft); }
 .cam-img { width: 100%; height: 100%; object-fit: cover; }
 .cam-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: var(--text-dim); font-size: 0.78rem; }
 .cam-placeholder small { font-family: ui-monospace, monospace; font-size: 0.66rem; opacity: 0.7; }
@@ -395,10 +398,7 @@ body {
 ::-webkit-scrollbar-thumb:hover { background: var(--primary-color); }
 
 /* ── Responsive ── */
-@media (max-width: 1400px) {
-  .main-grid { grid-template-columns: 320px 1fr 340px; }
-}
-@media (max-width: 1150px) {
+@media (max-width: 1280px) {
   .main-grid { grid-template-columns: 300px 1fr; }
   .col-right { display: none; }
 }
