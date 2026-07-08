@@ -1,16 +1,31 @@
-# React + Vite
+# RACLAB · FAAL — Otonom Forklift AMR · Kontrol Merkezi
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+TEKNOFEST 2026 **Sanayide Robotik Uygulamalar Yarışması** için geliştirilen
+web tabanlı kontrol ve izleme arayüzü. Tüm verisini ROS2 / RViz / Gazebo
+dünyasından `rosbridge` (WebSocket) üzerinden alır.
 
-Currently, two official plugins are available:
+## Paneller (şartname Görev 10 + Tablo 4 karşılığı)
+- **Robot Durumu** — 8 durum (idle, işleniyor, yüksüz/yüklü hareket, PLC bekleme, dönüş, hata, acil stop)
+- **Görev Planı** — adım listesi + 30 dk hedef / 45 dk limit süre sayacı
+- **Fabrika Otomasyon (PLC)** — bağlantı + kapı durumu + alınıp verilen mesaj günlüğü
+- **Harita & Navigasyon** — SLAM (OccupancyGrid) + 2D lidar + planlanan rota + alan işaretleri (A/B/düğüm/QR/kapı) + rota sapma halkası
+- **Sensör HUD** — okunan QR, hız, konum, yön, batarya, voltaj
+- **Çizgi Takip Kamerası** — görüntü + merkez sapma göstergesi
+- **Canlı Puan Panosu** — Tablo 4 kriterleri
+- **Uzaktan Teleop** — yalnızca robot anahtarı `MANUAL` iken aktif
+- **Jarvis** — Gemini destekli asistan (opsiyonel)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Çalıştırma
+```bash
+npm install
+npm run dev        # http://localhost:5173
+npm run build      # üretim derlemesi
+```
+> Not: DEMO düğmesi (sağ üst) ROS bağlı değilken tüm senaryoyu simüle eder —
+> Hareket-Kabiliyet videosu ve jüri sunumu için kullanışlıdır.
 
-## React Compiler
+## Konfigürasyon
+- ROS köprü adresi + Gemini anahtarı: `.env`
+- Topic isimleri, alan koordinatları, durumlar ve puanlama: `src/config/mission.js`
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+Ayrıntılı ROS2 entegrasyonu ve topic sözleşmesi için **ROS2_INTEGRATION.md**.

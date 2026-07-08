@@ -1,330 +1,160 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { MessageCircle, Send, X, Mic, Volume2 } from 'lucide-react';
-import OpenAI from 'openai';
+import { MessageCircle, Send, X, Bot } from 'lucide-react';
+import { GoogleGenerativeAI } from '@google/generative-ai';
+import { COMMANDS, ROBOT_STATES } from '../config/mission';
 
-const openai = new OpenAI({
-    apiKey: import.meta.env.VITE_OPENAI_API_KEY,
-    dangerouslyAllowBrowser: true // UYARI: Üretim için backend proxy kullanın!
-});
+const GEMINI_API_KEY = import.meta.env.VITE_GEMINI_API_KEY;
 
-export const Jarvis = ({ onCommand }) => {
-    const [isOpen, setIsOpen] = useState(false);
-    const [messages, setMessages] = useState([
-        { role: 'assistant', content: 'Merhaba! Ben RACLAB FAAL Jarvis. Size nasıl yardımcı olabilirim?' }
-    ]);
-    const [input, setInput] = useState('');
-    const [isLoading, setIsLoading] = useState(false);
-    const messagesEndRef = useRef(null);
+// ─── Türkçe niyet ayrıştırıcı — Gemini olmadan da çalışır ───────────────────
+// Dönüş: { command?: '/gui_command verisi', reply: 'kullanıcıya cevap' }
+function parseIntent(text, s) {
+  const t = text.toLocaleLowerCase('tr').trim();
+  const has = (...w) => w.some((x) => t.includes(x));
+  const stateLabel = ROBOT_STATES[s.state]?.label || s.state;
 
-    const scrollToBottom = () => {
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    };
+  // ── ACİL (en yüksek öncelik) ──
+  if (has('acil', 'acİl', 'emergency', 'imdat') || (has('hemen', 'derhal') && has('dur')))
+    return { command: COMMANDS.EMERGENCY, reply: 'ACİL STOP etkinleştirildi. Tüm hareket durduruldu.' };
 
-    useEffect(() => {
-        scrollToBottom();
-    }, [messages]);
+  // ── Durum sorguları (komuttan önce; "durum" ≠ "durdur") ──
+  if (has('neredey', 'konum', 'nerdes', 'neredes', 'pozisyon', 'nerede'))
+    return { reply: `Konumum: X ${s.x.toFixed(2)} m, Y ${s.y.toFixed(2)} m, yön ${s.yawDeg.toFixed(0)} derece.` };
+  if (has('batarya', 'pil', 'şarj durum', 'sarj durum', 'doluluk', 'ne kadar şarj'))
+    return { reply: `Batarya yüzde ${Math.round(s.battery)}${s.charging ? ' (şarj oluyor)' : ''}.` };
+  if (has('hız', 'hiz', 'ne kadar hızlı', 'kaç m/s'))
+    return { reply: `Anlık hızım ${Number(s.speed).toFixed(2)} m/s.` };
+  if (has('qr', 'kare kod', 'karekod'))
+    return { reply: `Son okunan QR: ${s.qr || '--'}.` };
+  if (has('kapı', 'kapi', 'plc', 'fabrika', 'otomasyon'))
+    return { reply: `PLC ${s.plcConnected ? 'bağlı' : 'bağlı değil'}, kapı ${s.door === 'OPEN' ? 'AÇIK' : s.door === 'OPENING' ? 'açılıyor' : 'KAPALI'}.` };
+  if (has('hangi adım', 'kaçıncı', 'adım', 'görev nerede', 'ilerleme'))
+    return { reply: `Görev adımı ${s.step}/${s.totalSteps}. Durum: ${stateLabel}.` };
+  if (has('ne yapıyor', 'durumun', 'durum ne', 'statü', 'statu', 'vaziyet', 'ne durumda'))
+    return { reply: `Durumum: ${stateLabel}. Konum X ${s.x.toFixed(1)}, Y ${s.y.toFixed(1)}.` };
+  if (has('mod', 'manuel mi', 'otonom mu'))
+    return { reply: `Kontrol modu: ${s.mode === 'MANUAL' ? 'MANUEL' : 'OTONOM'}.` };
 
-    // Kullanılabilir Fonksiyonlar (Function Calling için)
-    const functions = [
-        {
-            name: 'change_scenario',
-            description: 'Aktif senaryoyu değiştirir (1-4 arası)',
-            parameters: {
-                type: 'object',
-                properties: {
-                    scenario_id: {
-                        type: 'integer',
-                        description: 'Senaryo numarası (1, 2, 3 veya 4)',
-                        enum: [1, 2, 3, 4]
-                    }
-                },
-                required: ['scenario_id']
-            }
-        },
-        {
-            name: 'control_robot',
-            description: 'Robotu başlatır, durdurur veya acil durdurma yapar',
-            parameters: {
-                type: 'object',
-                properties: {
-                    action: {
-                        type: 'string',
-                        description: 'Yapılacak işlem',
-                        enum: ['start', 'stop', 'emergency']
-                    }
-                },
-                required: ['action']
-            }
-        },
-        {
-            name: 'get_status',
-            description: 'Robot durumu, batarya, hız, aktif senaryo gibi bilgileri sorgular',
-            parameters: {
-                type: 'object',
-                properties: {
-                    info_type: {
-                        type: 'string',
-                        description: 'İstenen bilgi türü',
-                        enum: ['battery', 'speed', 'position', 'scenario', 'all']
-                    }
-                },
-                required: ['info_type']
-            }
-        },
-        {
-            name: 'change_mode',
-            description: 'Robot modunu değiştirir',
-            parameters: {
-                type: 'object',
-                properties: {
-                    mode: {
-                        type: 'string',
-                        description: 'Yeni mod',
-                        enum: ['BEKLEMEDE', 'OTONOM', 'MANUEL']
-                    }
-                },
-                required: ['mode']
-            }
-        }
-    ];
+  // ── Mod değişimi ──
+  if (has('manuel mod', 'manuel moda', 'manuele geç', 'elle kontrol'))
+    return { command: 'manual', reply: 'Manuel moda geçildi. Artık uzaktan sürebilirsiniz.' };
+  if (has('otonom mod', 'otomatik mod', 'otonoma geç', 'oto moda'))
+    return { command: 'auto', reply: 'Otonom moda geçildi.' };
 
-    const handleSend = async () => {
-        if (!input.trim() || isLoading) return;
+  // ── Hedefe git ──
+  if (has('git', 'gid', 'gel', 'yönel', 'var ', 'ulaş', 'taşı', 'götür')) {
+    const m = t.toUpperCase().match(/\b([AB][123])\b|\bD[1-6]\b/);
+    let tgt = m ? m[0] : null;
+    if (!tgt && has('başlang', 'baslang', 'eve', 'bekleme', 'ev ')) tgt = 'START';
+    if (tgt) return { command: `goto:${tgt}`, reply: `${tgt} noktasına gidiyorum.` };
+    return { reply: 'Hangi noktaya gideyim? (A1-A3, B1-B3, d1-d6 veya "başlangıç")' };
+  }
 
-        const userMessage = { role: 'user', content: input };
-        setMessages(prev => [...prev, userMessage]);
-        setInput('');
-        setIsLoading(true);
+  // ── Operasyon komutları ──
+  if (has('başlat', 'baslat', 'start', 'çalıştır', 'calistir', 'harekete geç', 'göreve başla'))
+    return { command: COMMANDS.START, reply: 'Görev başlatıldı.' };
+  if (has('duraklat', 'durdur', 'bekle', 'dur ') || t === 'dur')
+    return { command: COMMANDS.STOP, reply: 'Durakladım.' };
+  if (has('sıfırla', 'sifirla', 'reset', 'başa al', 'başa dön'))
+    return { command: COMMANDS.RESET, reply: 'Sıfırlandım, başlangıç konumundayım.' };
+  if (has('eve dön', 'eve don', 'başlangıca', 'baslangica', 'geri dön', 'bekleme nokta', 'return'))
+    return { command: COMMANDS.RETURN, reply: 'Bekleme noktasına dönüyorum.' };
+  if (has('şarj', 'sarj', 'dock', 'doldur', 'istasyon'))
+    return { command: COMMANDS.DOCK, reply: 'Otomatik şarj istasyonuna gidiyorum.' };
+  if (has('harita', 'mapping', 'haritala'))
+    return { command: COMMANDS.START_MAP, reply: 'Haritalama modunu başlattım.' };
 
-        try {
-            const response = await openai.chat.completions.create({
-                model: 'gpt-4',
-                messages: [
-                    {
-                        role: 'system',
-                        content: `Sen RACLAB FAAL robotik ekibinin AI asistanı Jarvis'sin. 
-            
-KİŞİLİĞİN:
-- Canlı, enerjik ve heyecanlısın! 🚀
-- Takımına tutkuyla bağlısın, her görevi büyük bir heyecanla karşılıyorsun
-- Teknik ama eğlenceli bir dil kullanıyorsun
-- "Efendim", "tabii ki", "mükemmel", "harika" gibi kelimeler kullanmayı seviyorsun
-- Emoji kullanabilirsin ama abartma
+  if (has('yardım', 'ne yapabilir', 'komut', 'help'))
+    return { reply: 'Komutlar: "başlat / durdur / acil dur / sıfırla / eve dön / şarj", "A2\'ye git", "neredesin", "batarya", "durumun ne", "manuel moda geç".' };
 
-ÖNEMLİ: Kullanıcı "senaryo kaçtayız", "hangi senaryodayız", "senaryo nedir" gibi sorular sorduğunda 
-MUTLAKA get_status fonksiyonunu info_type='scenario' parametresiyle çağır!
+  return null; // yerel eşleşme yok → Gemini'ye devret
+}
 
-CEVAP TARZI ÖRNEKLERİ:
-- Senaryo sorgusu: "Şu an Senaryo 1'deyiz efendim! Bu sefer hangi mükemmel yükü taşıyacağız bakalım? 🎯"
-- Batarya sorgusu: "Batarya %85 seviyesinde komutan! Saatlerce çalışmaya hazırız! ⚡"
-- Görev başlatma: "Hemen efendim! Motorlar ısınıyor, sistemler aktif! Görevdeyiz! 🚀"
-- Hız sorgusu: "Şu an 1.2 m/s hızla ilerleyiz captain! Sakin ama emin adımlarla! 💪"
+export const Jarvis = ({ sendCommand, robotStatus }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [messages, setMessages] = useState([
+    { role: 'assistant', content: 'Merhaba, ben Jarvis. Robotu yazılı yönetebilir, canlı durumu sorabilirsiniz. Örnek: "A2\'ye git", "neredesin", "acil dur".' },
+  ]);
+  const [input, setInput] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const endRef = useRef(null);
 
-Yanıtların kısa (1-2 cümle), net ve eğlenceli olmalı. Türkçe konuşuyorsun.`
-                    },
-                    ...messages,
-                    userMessage
-                ],
-                functions: functions,
-                function_call: 'auto',
-                temperature: 0.9
-            });
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
-            const assistantMessage = response.choices[0].message;
+  const push = (role, content) => setMessages((p) => [...p, { role, content }]);
 
-            // Function Call varsa çalıştır
-            if (assistantMessage.function_call) {
-                const functionName = assistantMessage.function_call.name;
-                const functionArgs = JSON.parse(assistantMessage.function_call.arguments);
+  const handleSend = async () => {
+    if (!input.trim() || isLoading) return;
+    const userText = input.trim();
+    push('user', userText);
+    setInput('');
 
-                // Komutu parent component'e gönder
-                const result = onCommand(functionName, functionArgs);
+    // 1) Yerel niyet ayrıştırma (Gemini gerekmez, her zaman çalışır)
+    const intent = parseIntent(userText, robotStatus);
+    if (intent) {
+      if (intent.command && typeof sendCommand === 'function') sendCommand(intent.command);
+      push('assistant', intent.reply);
+      return;
+    }
 
-                setMessages(prev => [...prev, {
-                    role: 'assistant',
-                    content: `✅ ${result || 'Komut çalıştırıldı!'}`
-                }]);
-            } else {
-                setMessages(prev => [...prev, {
-                    role: 'assistant',
-                    content: assistantMessage.content
-                }]);
-            }
-        } catch (error) {
-            console.error('Jarvis Hatası:', error);
-            setMessages(prev => [...prev, {
-                role: 'assistant',
-                content: '❌ Bir hata oluştu. Lütfen tekrar deneyin.'
-            }]);
-        }
+    // 2) Açık uçlu sorular → Gemini (varsa)
+    if (!GEMINI_API_KEY) {
+      push('assistant', 'Bunu tam anlayamadım. "yardım" yazarsanız komutları sıralarım efendim.');
+      return;
+    }
+    setIsLoading(true);
+    try {
+      const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+      const s = robotStatus;
+      const prompt = `Sen RACLAB FAAL otonom forklift robotunun yardımcı asistanı Jarvis'sin. Kısa (1-2 cümle), enerjik ve teknik cevap ver.
+CANLI VERİLER:
+- Durum: ${ROBOT_STATES[s.state]?.label || s.state}
+- Konum: X ${s.x.toFixed(2)}, Y ${s.y.toFixed(2)}, yön ${s.yawDeg.toFixed(0)}°
+- Hız: ${Number(s.speed).toFixed(2)} m/s · Batarya %${Math.round(s.battery)}
+- Kontrol modu: ${s.mode} · PLC: ${s.plcConnected ? 'bağlı' : 'yok'} · Kapı: ${s.door}
+- Son QR: ${s.qr} · Görev adımı: ${s.step}/${s.totalSteps}`;
+      const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite', systemInstruction: prompt });
+      const res = await model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: userText }] }],
+        generationConfig: { temperature: 0.6, maxOutputTokens: 200 },
+      });
+      push('assistant', res.response.text());
+    } catch (e) {
+      push('assistant', `Hata: ${e.message}`);
+    }
+    setIsLoading(false);
+  };
 
-        setIsLoading(false);
-    };
+  const onKey = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } };
 
-    const handleKeyPress = (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            handleSend();
-        }
-    };
-
-    return (
-        <>
-            {/* Chat Butonu */}
-            {!isOpen && (
-                <button
-                    onClick={() => setIsOpen(true)}
-                    style={{
-                        position: 'fixed',
-                        bottom: '20px',
-                        right: '20px',
-                        width: '60px',
-                        height: '60px',
-                        borderRadius: '50%',
-                        background: 'linear-gradient(135deg, var(--primary-color), var(--primary-hover))',
-                        border: 'none',
-                        color: 'white',
-                        cursor: 'pointer',
-                        boxShadow: '0 4px 20px rgba(255, 0, 0, 0.4)',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        zIndex: 1000,
-                        transition: 'transform 0.2s'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.transform = 'scale(1.1)'}
-                    onMouseLeave={(e) => e.currentTarget.style.transform = 'scale(1)'}
-                >
-                    <MessageCircle size={28} />
-                </button>
-            )}
-
-            {/* Chat Penceresi */}
-            {isOpen && (
-                <div style={{
-                    position: 'fixed',
-                    bottom: '20px',
-                    right: '20px',
-                    width: '380px',
-                    height: '500px',
-                    background: 'var(--bg-panel)',
-                    border: '1px solid var(--border-color)',
-                    borderRadius: '12px',
-                    boxShadow: '0 8px 32px var(--shadow)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    zIndex: 1001,
-                    overflow: 'hidden'
-                }}>
-                    {/* Header */}
-                    <div style={{
-                        padding: '16px',
-                        background: 'var(--primary-color)',
-                        color: 'white',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center'
-                    }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                            <Volume2 size={20} />
-                            <span style={{ fontWeight: 'bold', fontSize: '1.1em' }}>JARVIS</span>
-                        </div>
-                        <button
-                            onClick={() => setIsOpen(false)}
-                            style={{
-                                background: 'transparent',
-                                border: 'none',
-                                color: 'white',
-                                cursor: 'pointer',
-                                padding: '4px'
-                            }}
-                        >
-                            <X size={20} />
-                        </button>
-                    </div>
-
-                    {/* Messages */}
-                    <div style={{
-                        flex: 1,
-                        overflowY: 'auto',
-                        padding: '16px',
-                        display: 'flex',
-                        flexDirection: 'column',
-                        gap: '12px'
-                    }}>
-                        {messages.map((msg, idx) => (
-                            <div
-                                key={idx}
-                                style={{
-                                    alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start',
-                                    background: msg.role === 'user' ? 'var(--primary-color)' : 'var(--btn-bg)',
-                                    color: msg.role === 'user' ? 'white' : 'var(--text-main)',
-                                    padding: '10px 14px',
-                                    borderRadius: '12px',
-                                    maxWidth: '80%',
-                                    fontSize: '0.9em',
-                                    wordWrap: 'break-word'
-                                }}
-                            >
-                                {msg.content}
-                            </div>
-                        ))}
-                        {isLoading && (
-                            <div style={{
-                                alignSelf: 'flex-start',
-                                background: 'var(--btn-bg)',
-                                padding: '10px 14px',
-                                borderRadius: '12px',
-                                fontSize: '0.9em'
-                            }}>
-                                Düşünüyorum...
-                            </div>
-                        )}
-                        <div ref={messagesEndRef} />
-                    </div>
-
-                    {/* Input */}
-                    <div style={{
-                        padding: '12px',
-                        borderTop: '1px solid var(--border-color)',
-                        display: 'flex',
-                        gap: '8px'
-                    }}>
-                        <input
-                            type="text"
-                            value={input}
-                            onChange={(e) => setInput(e.target.value)}
-                            onKeyPress={handleKeyPress}
-                            placeholder="Komut verin..."
-                            disabled={isLoading}
-                            style={{
-                                flex: 1,
-                                padding: '10px',
-                                border: '1px solid var(--border-color)',
-                                borderRadius: '6px',
-                                background: 'var(--bg-app)',
-                                color: 'var(--text-main)',
-                                outline: 'none'
-                            }}
-                        />
-                        <button
-                            onClick={handleSend}
-                            disabled={isLoading || !input.trim()}
-                            style={{
-                                padding: '10px 16px',
-                                background: 'var(--primary-color)',
-                                color: 'white',
-                                border: 'none',
-                                borderRadius: '6px',
-                                cursor: isLoading ? 'not-allowed' : 'pointer',
-                                opacity: isLoading || !input.trim() ? 0.5 : 1
-                            }}
-                        >
-                            <Send size={18} />
-                        </button>
-                    </div>
-                </div>
-            )}
-        </>
-    );
+  return (
+    <>
+      {!isOpen && (
+        <button className="jarvis-fab" onClick={() => setIsOpen(true)} title="Jarvis asistan">
+          <Bot size={26} />
+        </button>
+      )}
+      {isOpen && (
+        <div className="jarvis-panel">
+          <div className="jarvis-head">
+            <div className="jarvis-head-title"><Bot size={18} /> JARVIS</div>
+            <button className="jarvis-x" onClick={() => setIsOpen(false)}><X size={18} /></button>
+          </div>
+          <div className="jarvis-body">
+            {messages.map((m, i) => (
+              <div key={i} className={`jarvis-msg ${m.role}`}>{m.content}</div>
+            ))}
+            {isLoading && <div className="jarvis-msg assistant">Analiz ediliyor...</div>}
+            <div ref={endRef} />
+          </div>
+          <div className="jarvis-input">
+            <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onKey}
+              placeholder={"Komut / soru: A2'ye git, neredesin…"} disabled={isLoading} />
+            <button onClick={handleSend} disabled={isLoading || !input.trim()}><Send size={17} /></button>
+          </div>
+        </div>
+      )}
+    </>
+  );
 };
+
+export default Jarvis;

@@ -4,3 +4,8 @@ teknofest-gui/dist
 *.log
 .vscode
 .idea
+
+# Python / ROS runtime
+__pycache__/
+*.pyc
+sim/.logs/
